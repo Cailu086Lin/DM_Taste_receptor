@@ -1,0 +1,576 @@
+---
+title: "DM_Taste_receptor"
+author: "Cailu Lin"
+date: "2021Äê3ÔÂ14ÈÕ"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r  load R packages}
+pacman::p_load(plyr, dplyr, reshape2, data.table, ggplot2, cowplot, ggpubr,readr,GGally, Hmisc, stargazer, tidyverse, gtsummary, readxl, kableExtra, broom)
+```
+
+
+```{r  inport data}
+setwd("C:/Users/clin/Dropbox/29. Diabetes/2. R") 
+
+dat<- read_csv("DMCleanedData_Formatted.csv")
+TAS2R19<-read.csv("DM TAS2R19 10.26.18.csv")
+dat<-merge(dat, TAS2R19, by="SubjectID", all.x=T)
+dat$TAS2R19<-ifelse(dat$rs10772420=="G:G", 0,ifelse(dat$rs10772420=="A:G",1, ifelse(dat$rs10772420=="A:A", 2, NA)))
+
+```
+
+
+
+##Compare with normal control
+
+```{r normal control}
+mydata<- read.csv("CNTL.csv", header=T)%>%
+   distinct(UniqueID, .keep_all = T)
+cnt.geno<-read.csv("CNT.geno.csv", header=T)%>%
+   mutate(rs1726866=recode(rs1726866, "G:G"="C:C", "A:G"="C:T", "A:A"="T:T"))
+
+mydata<-merge(mydata, cnt.geno,by.x="UniqueID2",by.y="UniqueID", all.x=T)
+
+
+d1<-read_excel("control_data_uniqueid.xlsx")%>%
+   filter(UniqueID>0)%>%
+   distinct(UniqueID, .keep_all = T)
+d2<-d1[d1$UniqueID %in% mydata$UniqueID&
+          d1$sex %in% mydata$Sex,]%>%
+   dplyr::select(UniqueID, t2r38, smoking_hx)
+
+mydata <-merge(mydata, d2, by="UniqueID")
+
+cnt<-mydata%>%
+   filter(Pregnant !="Yes")%>%
+   filter(Disease !="Autoimmune disesases"&Disease !="Cystic Fibrosis")%>%
+   filter(Oral.Medications !="Oral Antibiotics" & Oral.Medications !="Oral Steriods")%>%
+   filter(Antibiotics !="Yes")%>%
+   dplyr::select(ID,Age, Sex, Race, seasonal.allergies, asthma, H2OMeanIntensity, NaClMeanIntensity,  
+SucroseMeanIntensity,                                         
+DBMeanIntensity,                                              
+QuinineMeanIntensity,                                        
+PTCMeanIntensity,  Rhinologic_SNOT.22, Total_SNOT.22, smoking_hx, t2r38, Sinus.Surgery, rs10772420, rs1726866, rs10246939,rs713598)
+
+#Rename cnt 
+names(cnt)[names(cnt) == "ID"] <- "SubjectID"
+names(cnt)[names(cnt) == "Rhinologic_SNOT.22"] <- "Rhinologic_SNOT_22"
+names(cnt)[names(cnt) == "Total_SNOT.22"] <- "Total_SNOT_22"
+names(cnt)[names(cnt) == "DBMeanIntensity"] <- "Denatonium_ave"
+names(cnt)[names(cnt) == "SucroseMeanIntensity"] <- "Sweet_ave"
+names(cnt)[names(cnt) == "PTCMeanIntensity"] <- "PTC_ave"
+names(cnt)[names(cnt) == "NaClMeanIntensity"] <- "Salty_ave"
+names(cnt)[names(cnt) == "QuinineMeanIntensity"] <- "Quinine_ave"
+names(cnt)[names(cnt) == "H2OMeanIntensity"] <- "Water_ave"
+names(cnt)[names(cnt) == "seasonal.allergies"] <- "Seasonal_Allergies"
+names(cnt)[names(cnt) == "asthma"] <-"Asthma" 
+names(cnt)[names(cnt) == "Sinus.Surgery"] <-"Hx_Sinus_Surgery" 
+names(cnt)[names(cnt) == "t2r38"] <-"TAS2R38_Diplotype" 
+
+
+cnt$dm<-"control"
+##mer data
+cnt$Asthma<-ifelse(cnt$Asthma=="Yes", 1, 0)
+cnt$Hx_Sinus_Surgery<-ifelse(cnt$Hx_Sinus_Surgery=="Yes", 1,0)
+cnt$Seasonal_Allergies<-ifelse(cnt$Seasonal_Allergies=="Yes",1, 0)
+
+df<-bind_rows(dat, cnt)
+
+df$dm[is.na(df$dm)]<-"case"
+
+
+df<-df%>%
+   mutate(Sex=recode(Sex, "1"="Man", "2"="Woman"))%>%
+   mutate(Race=recode(Race," 1"="European", "2"="Asian", "4"="African American"))
+
+df$Smoking<-ifelse(df$smoking_hx==4, "Never", "Ever")
+#Immunodeficiencies
+
+df$`Immunocompromised/Autoimmune_disease`[df$`Immunocompromised/Autoimmune_disease`=="Sarcoidosis and hx hodgkins"]<-1
+df$`Immunocompromised/Autoimmune_disease`[is.na(df$`Immunocompromised/Autoimmune_disease`)]<-0
+
+df$immunodef <- rowSums(as.data.frame(lapply(df[c("autoimmune_disease_5","HIV","Transplant", "Immunocompromised/Autoimmune_disease","Immunocompromised", "Hypothyroidism")],as.numeric)))
+
+df <-df %>%
+  filter(immunodef ==0|is.na(immunodef))
+  
+df<-df%>%
+  filter(SubjectID !="DM-010"&SubjectID !="DM-026")
+
+df$Race<- as.character(df$Race)
+df$Asthma<- as.character(df$Asthma)
+df$Seasonal_Allergies<- as.character(df$Seasonal_Allergies)
+df$GERD<- as.character(df$GERD)
+df$HTN<- as.character(df$HTN)
+df$Sinonasal_Trauma<- as.character(df$Sinonasal_Trauma)
+df$HLD<- as.character(df$HLD)
+
+
+df$TAS2R38<-ifelse(df$TAS2R38_Diplotype=="AVI/AVI", "AVI/AVI",ifelse(df$TAS2R38_Diplotype=="AVI/PAV", "AVI/PAV",ifelse(df$TAS2R38_Diplotype=="PAV/PAV", "PAV/PAV","Other")))
+```
+
+
+
+```{r, Summary table 1}
+
+tbl<-df%>%
+   dplyr::select(dm,FSG, A1C, Age,Sex, Race,Smoking,Asthma,Seasonal_Allergies,GERD,HTN,Sinonasal_Trauma,HLD, Quinine_ave,Denatonium_ave,PTC_ave, Sweet_ave, Salty_ave,Water_ave,Rhinologic_SNOT_22, Total_SNOT_22, TAS2R38)%>%
+   tbl_summary(by =dm, type=c(Water_ave,Quinine_ave,Denatonium_ave,PTC_ave, Sweet_ave, Salty_ave) ~"continuous",
+    digits = all_continuous() ~ 2,
+    missing_text = "(Missing)",statistic = list(all_continuous() ~ "{mean} ({sd})",
+                     all_categorical() ~ "{n} / {N} ({p}%)")) %>% 
+   add_p(test=list(all_continuous() ~ "t.test"),pvalue_fun = ~style_pvalue(.x, digits = 2)) %>%
+  add_overall() %>%
+  add_n() %>%
+  add_stat_label()%>%
+  modify_header(label ~ "**Variable**") %>%
+  modify_footnote(
+    all_stat_cols() ~ "Mean (SD) or Frequency (%)"
+  ) %>%
+  bold_labels()
+```
+
+
+
+```{r GLM statistics}
+#all subjects
+d<-df%>%
+   dplyr::select(dm,FSG, A1C, Age,Sex, Race,Smoking,Asthma,Seasonal_Allergies, GERD,HTN,Sinonasal_Trauma,HLD,Quinine_ave,Denatonium_ave,PTC_ave, Sweet_ave, Salty_ave,Water_ave,Rhinologic_SNOT_22, Total_SNOT_22, TAS2R38)
+
+a<-tidy(aov(glm(Quinine_ave~dm+Age+Sex+Race+Smoking+Asthma+Seasonal_Allergies, d, family=gaussian)))
+
+b<-tidy(aov(glm(Denatonium_ave~dm+Age+Sex+Race+Smoking+Asthma+Seasonal_Allergies, d,family=gaussian)))
+c<-tidy(aov(glm(PTC_ave~dm+Age+Sex+Race+Smoking+Asthma+Seasonal_Allergies, d,family=gaussian)))
+d2<-tidy(aov(glm(Sweet_ave~dm+Age+Sex+Race+Smoking+Asthma+Seasonal_Allergies, d,family=gaussian)))
+e<-tidy(aov(glm(Salty_ave~dm+Age+Sex+Race+Smoking+Asthma+Seasonal_Allergies, d,family=gaussian)))
+f<-tidy(aov(glm(Water_ave~dm+Age+Sex+Race+Smoking+Asthma+Seasonal_Allergies, d,family=gaussian)))
+
+
+
+a$Stimuli<-"Quaninine"
+b$Stimuli<-"Denatonium"
+c$Stimuli<-"PTC"
+d2$Stimuli<-"Sucrose"
+e$Stimuli<-"NaCl"
+f$Stimuli<-"Water"
+
+Result1<-bind_rows(a,b,c,d2,e,f)
+write.csv(Result1[,c(7,1:6)], "Sta_Result_glm_all.csv", row.names = F)
+
+##
+
+
+#Posthoc test.data.table
+
+TUKEY1 <- lsmeans::lsmeans(aov(lm(Quinine_ave~dm+Age+Sex+Race+Smoking+Asthma+Seasonal_Allergies, d)),
+                      pairwise ~ dm,adjust="tukey",
+                      data=d)
+
+TUKEY2 <- lsmeans::lsmeans(aov(lm(Denatonium_ave~dm+Age+Sex+Race+Smoking+Asthma+Seasonal_Allergies, d)),
+                      pairwise ~ dm,adjust="tukey",
+                      data=d)
+                 
+
+##
+x<-tidy(aov(glm(PTC_ave~dm+Age+Sex+Race+Smoking+Asthma+Seasonal_Allergies, subset(d,TAS2R38 =="AVI/AVI"),family=gaussian)))
+y<-tidy(aov(glm(PTC_ave~dm+Age+Sex+Race+Smoking+Asthma+Seasonal_Allergies, subset(d,TAS2R38 =="AVI/PAV"|TAS2R38=="PAV/PAV"),family=gaussian)))
+
+x$TAS2R38<-"AVI/AVI"
+y$TAS2R38<-"AVI/PAV\nPAV/PAV"
+
+Result2<-bind_rows(x,y)
+write.csv(Result2[,c(7,1:6)], "Sta_Result1_GLM_pTC.csv", row.names = F)
+
+#posthoc test
+TUKEY3 <- lsmeans::lsmeans(aov(lm(PTC_ave~dm+Age+Sex+Race+Smoking+Asthma+Seasonal_Allergies, subset(d,TAS2R38 =="AVI/PAV"|TAS2R38=="PAV/PAV"))),
+                      pairwise ~ dm,adjust="tukey",
+                      data=subset(d,TAS2R38 =="AVI/PAV"|TAS2R38=="PAV/PAV"))
+```
+
+#case-control matched
+
+```{r mtached}
+write.csv(df[c(1,5,6,8,54,53)], "testmatch.csv", row.names = F)
+matched<-read.csv("testmatch.csv", header=T)
+mat<-matched[matched$SubjectID %in% matched$matched|matched$matched!="",]
+
+
+df1<-df[df$SubjectID %in% mat$SubjectID,]
+
+
+tbl<-df1%>%
+   dplyr::select(dm,FSG, A1C, Age,Sex, Race,Smoking,Asthma,Seasonal_Allergies,GERD,HTN,Sinonasal_Trauma,HLD, Quinine_ave,Denatonium_ave,PTC_ave, Sweet_ave, Salty_ave,Water_ave,Rhinologic_SNOT_22, Total_SNOT_22, TAS2R38)%>%
+   tbl_summary(by =dm, type=c(Water_ave,Quinine_ave,Denatonium_ave,PTC_ave, Sweet_ave, Salty_ave) ~"continuous",
+    digits = all_continuous() ~ 2,
+    missing_text = "(Missing)",statistic = list(all_continuous() ~ "{mean} ({sd})",
+                     all_categorical() ~ "{n} / {N} ({p}%)")) %>% 
+   add_p(test=list(all_continuous() ~ "t.test"),pvalue_fun = ~style_pvalue(.x, digits = 2)) %>%
+  add_overall() %>%
+  add_n() %>%
+  modify_header(label ~ "**Variable**") %>%
+  modify_footnote(
+    all_stat_cols() ~ "Mean (SD) or Frequency (%)"
+  ) %>%
+  bold_labels()
+
+```
+
+
+```{r GLM statistics matched}
+d<-df1%>%
+   dplyr::select(dm,FSG, A1C, Age,Sex, Race,Smoking,Asthma,Seasonal_Allergies, GERD,HTN,Sinonasal_Trauma,HLD,Quinine_ave,Denatonium_ave,PTC_ave, Sweet_ave, Salty_ave,Water_ave,Rhinologic_SNOT_22, Total_SNOT_22, TAS2R38)
+
+a<-tidy(aov(glm(Quinine_ave~dm+Smoking, d, family=gaussian)))
+b<-tidy(aov(glm(Denatonium_ave~dm+Smoking, d,family=gaussian)))
+c<-tidy(aov(glm(PTC_ave~dm+Smoking, d,family=gaussian)))
+d2<-tidy(aov(glm(Sweet_ave~dm+Smoking, d,family=gaussian)))
+e<-tidy(aov(glm(Salty_ave~dm+Smoking, d,family=gaussian)))
+f<-tidy(aov(glm(Water_ave~dm+Smoking, d,family=gaussian)))
+
+
+
+a$Stimuli<-"Quaninine"
+b$Stimuli<-"Denatonium"
+c$Stimuli<-"PTC"
+d2$Stimuli<-"Sucrose"
+e$Stimuli<-"NaCl"
+f$Stimuli<-"Water"
+
+Result1<-bind_rows(a,b,c,d2,e,f)
+write.csv(Result1[,c(7,1:6)], "Matched_Result_glm_all.csv", row.names = F)
+
+##
+
+
+#Posthoc test.data.table
+
+TUKEY1 <- lsmeans::lsmeans(aov(lm(Quinine_ave~dm+Age+Sex+Race+Smoking+Asthma+Seasonal_Allergies, d)),
+                      pairwise ~ dm,adjust="tukey",
+                      data=d)
+
+TUKEY2 <- lsmeans::lsmeans(aov(lm(Denatonium_ave~dm+Age+Sex+Race+Smoking+Asthma+Seasonal_Allergies, d)),
+                      pairwise ~ dm,adjust="tukey",
+                      data=d)
+                 
+
+##
+x<-tidy(aov(glm(PTC_ave~dm+Smoking, subset(d,TAS2R38 =="AVI/AVI"),family=gaussian)))
+y<-tidy(aov(glm(PTC_ave~dm+Smoking, subset(d,TAS2R38 =="AVI/PAV"|TAS2R38=="PAV/PAV"),family=gaussian)))
+
+x$TAS2R38<-"AVI/AVI"
+y$TAS2R38<-"AVI/PAV\nPAV/PAV"
+
+Result2<-bind_rows(x,y)
+write.csv(Result2[,c(7,1:6)], "Matched_Result1_GLM_pTC.csv", row.names = F)
+
+#posthoc test
+TUKEY3 <- lsmeans::lsmeans(aov(lm(PTC_ave~dm+Age+Sex+Race+Smoking+Asthma+Seasonal_Allergies, subset(d,TAS2R38 =="AVI/PAV"|TAS2R38=="PAV/PAV"))),
+                      pairwise ~ dm,adjust="tukey",
+                      data=subset(d,TAS2R38 =="AVI/PAV"|TAS2R38=="PAV/PAV"))
+
+```
+
+
+S1 Figure
+```{r Correlations}
+
+y<-df %>%
+  dplyr::select(FSG, A1C, Rhinologic_SNOT_22,
+Total_SNOT_22,Nasal_Glucose,Quinine_ave, PTC_ave, Sweet_ave,Denatonium_ave,Salty_ave, Water_ave)
+   
+
+colnames(y)<-c("FSG","A1C","Rhinologic SNOT-22"
+,"SNOT-22","Nasal glucose", "Quinine","Denatonium", "PTC", "Sucrose", "NaCl", "Water")
+y<-y[,c(1,2,5,3,4,6,7,8,9,10,11)]
+#y<-y[,c(1,2,5,3,4)]
+p<-ggcorrmat(
+  data = y,
+  colors = c("#B2182B", "white", "#4D4D4D"),
+  #type = "NP",
+  #result_title=FALSE
+  #title = "Correlalogram for parametrics of diabete patients",
+  #subtitle = "Sweet and bitter taste recepotrs"
+)  
+   
+```
+
+
+Fig1 version#2
+```{r}
+library(Rmisc)
+library(ggsignif)
+library(emmeans)
+
+t<-emmeans(lm(Quinine_ave~dm+Sex+Age+Race+Smoking+Asthma+Seasonal_Allergies, data=df), pairwise~dm,adjust = "none")
+
+F1<-ggplot(data.frame(t$emmeans), aes(x=dm, y=emmean)) + 
+    geom_bar(aes(fill = dm),position=position_dodge(), stat="identity",
+             colour="black", # Use black outlines,
+             size=.3, width=.7) + 
+    geom_errorbar(aes(ymin=emmean-0, ymax=emmean+SE, fill = dm),
+                  size=.3,    # Thinner lines
+                  width=.2,
+                  position=position_dodge(.7)) +
+    ylab("Ratings") +xlab("Quinine")+
+    scale_fill_manual(name="",
+                   breaks=c("case", "control"),
+                   values= c("black", "white"),
+                   labels=c("Diabetes", "Controls")) +
+    theme_classic()+theme(axis.text.x = element_blank(), axis.title.y = element_text(face="bold", size=16),axis.title.x = element_text(face="bold",size=12),  axis.text=element_text(face="bold", size=12), legend.position = "none", legend.text = element_text(face="bold", size=14))+ geom_signif(y_position=c(4), xmin=c(1), xmax=c(2), annotation=c( "*"), tip_length=0, vjust=0.4,size=1, textsize = 8) +ylim(0, 11.9)+theme(plot.margin = margin(2, 0, 2, 2))
+
+##F2
+t<-emmeans(lm(Denatonium_ave~dm+Sex+Age+Race+Smoking+Asthma+Seasonal_Allergies, data=df), pairwise~dm,adjust = "none")
+
+F2<-ggplot(data.frame(t$emmeans), aes(x=dm, y=emmean)) + 
+    geom_bar(aes(fill = dm),position=position_dodge(), stat="identity",
+             colour="black", # Use black outlines,
+             size=.3, width=.7) + 
+    geom_errorbar(aes(ymin=emmean-0, ymax=emmean+SE, fill = dm),
+                  size=.3,    # Thinner lines
+                  width=.2,
+                  position=position_dodge(.7)) +
+    ylab("Ratings") +xlab("Denatonium")+
+    scale_fill_manual(name="",
+                   breaks=c("case", "control"),
+                   values= c("black", "white"),
+                   labels=c("Diabetes", "Controls")) +
+    theme_classic()+theme(axis.text.x = element_blank(), axis.title.y = element_text(face="bold", size=16), axis.title.x = element_text(face="bold",size=12), axis.text=element_text(face="bold", size=12), legend.position = "None",  legend.text = element_text(face="bold", size=14))+ geom_signif(y_position=c(10), xmin=c(1), xmax=c(2), annotation=c( "*"), tip_length=0,vjust=0.4, size=1, textsize = 8) +ylim(0, 11.9)+theme(axis.title.y = element_blank(),axis.text.y = element_blank(), axis.line.y=element_blank(), axis.ticks.y=element_blank())+theme(plot.margin = margin(2, 0, 2, 0))
+
+##F3
+t<-emmeans(lm(PTC_ave~dm+Sex+Age+Race+Smoking+Asthma+Seasonal_Allergies, data=df), pairwise~dm,adjust = "none")
+
+
+F3<-ggplot(data.frame(t$emmeans), aes(x=dm, y=emmean)) + 
+    geom_bar(aes(fill = dm),position=position_dodge(), stat="identity",
+             colour="black", # Use black outlines,
+             size=.3, width=.7) + 
+    geom_errorbar(aes(ymin=emmean-0, ymax=emmean+SE, fill = dm),
+                  size=.3,    # Thinner lines
+                  width=.2,
+                  position=position_dodge(.7)) +
+    ylab("Ratings") +xlab("PTC")+
+    scale_fill_manual(name="",
+                   breaks=c("case", "control"),
+                   values= c("black", "white"),
+                   labels=c("Diabetes", "Controls")) +
+    theme_classic()+theme(axis.text.x = element_blank(), axis.title.y = element_text(face="bold", size=16),axis.title.x = element_text(face="bold",size=12),  axis.text=element_text(face="bold", size=12), legend.position = "None",  legend.text = element_text(face="bold", size=14))+ ylim(0, 11.9)+theme(axis.title.y = element_blank(),axis.text.y = element_blank(), axis.line.y=element_blank(), axis.ticks.y=element_blank())+theme(plot.margin = margin(2, 0, 2, 0))
+
+
+
+##F4
+t<-emmeans(lm(Sweet_ave~dm+Sex+Age+Race+Smoking+Asthma+Seasonal_Allergies, data=df), pairwise~dm,adjust = "none")
+
+
+F4<-ggplot(data.frame(t$emmeans), aes(x=dm, y=emmean)) + 
+    geom_bar(aes(fill = dm),position=position_dodge(), stat="identity",
+             colour="black", # Use black outlines,
+             size=.3, width=.7) + 
+    geom_errorbar(aes(ymin=emmean-0, ymax=emmean+SE, fill = dm),
+                  size=.3,    # Thinner lines
+                  width=.2,
+                  position=position_dodge(.7)) +
+    ylab("Ratings") +xlab("Sucrose")+
+    scale_fill_manual(name="",
+                   breaks=c("case", "control"),
+                   values= c("black", "white"),
+                   labels=c("Diabetes", "Controls")) +
+    theme_classic()+theme(axis.text.x = element_blank(), axis.title.y = element_text(face="bold", size=16),axis.title.x = element_text(face="bold",size=12),  axis.text=element_text(face="bold", size=12), legend.position = "None",  legend.text = element_text(face="bold", size=14)) +ylim(0, 11.9)+theme(axis.title.y = element_blank(),axis.text.y = element_blank(), axis.line.y=element_blank(), axis.ticks.y=element_blank())+theme(plot.margin = margin(2, 0, 2, 0))
+
+##F5
+t<-emmeans(lm(Salty_ave~dm+Sex+Age+Race+Smoking+Asthma+Seasonal_Allergies, data=df), pairwise~dm,adjust = "none")
+
+
+F5<-ggplot(data.frame(t$emmeans), aes(x=dm, y=emmean)) + 
+    geom_bar(aes(fill = dm),position=position_dodge(), stat="identity",
+             colour="black", # Use black outlines,
+             size=.3, width=.7) + 
+    geom_errorbar(aes(ymin=emmean-0, ymax=emmean+SE, fill = dm),
+                  size=.3,    # Thinner lines
+                  width=.2,
+                  position=position_dodge(.7)) +
+    ylab("Ratings") +xlab("NaCl")+
+    scale_fill_manual(name="",
+                   breaks=c("case", "control"),
+                   values= c("black", "white"),
+                   labels=c("Diabetes", "Controls")) +
+    theme_classic()+theme(axis.text.x = element_blank(), axis.title.y = element_text(face="bold", size=16), axis.title.x = element_text(face="bold",size=12), axis.text=element_text(face="bold", size=12), legend.position = "None",  legend.text = element_text(face="bold", size=14))+ylim(0, 11.9)+theme(axis.title.y = element_blank(),axis.text.y = element_blank(), axis.line.y=element_blank(), axis.ticks.y=element_blank())+theme(plot.margin = margin(2, 0, 2, 0))
+
+##F6
+t<-emmeans(lm(Water_ave~dm+Sex+Age+Race+Smoking+Asthma+Seasonal_Allergies, data=df), pairwise~dm,adjust = "none")
+
+
+F6<-ggplot(data.frame(t$emmeans), aes(x=dm, y=emmean)) + 
+    geom_bar(aes(fill = dm),position=position_dodge(), stat="identity",
+             colour="black", # Use black outlines,
+             size=.3, width=.7) + 
+    geom_errorbar(aes(ymin=emmean-0, ymax=emmean+SE, fill = dm),
+                  size=.3,    # Thinner lines
+                  width=.2,
+                  position=position_dodge(.7)) +
+    ylab("Ratings") +xlab("Water")+
+    scale_fill_manual(name="",
+                   breaks=c("case", "control"),
+                   values= c("black", "white"),
+                   labels=c("Diabetes", "Controls")) +
+    theme_classic()+theme(axis.text.x = element_blank(), axis.title.y = element_text(face="bold", size=16),axis.title.x = element_text(face="bold",size=12), axis.text=element_text(face="bold", size=12), legend.position = c(0.2,0.9),  legend.text = element_text(face="bold", size=14))+ylim(0, 11.9)+theme(axis.title.y = element_blank(),axis.text.y = element_blank(), axis.line.y=element_blank(), axis.ticks.y=element_blank())+theme(plot.margin = margin(2, 2, 2, 0))
+
+
+p<-cowplot::plot_grid(F1,F2,F3, F4, F5, F6, ncol=6, align = "h", rel_widths = c(.96,.6, .6,.6,.6,.6))
+
+postscript(colormodel="cmyk")
+ggsave(filename ='Figure_1_v3.tif', p,  width = 17, height = 8, units ="cm",dpi = 600, device='tiff', limitsize = TRUE, compression = "lzw")
+dev.off()
+```
+
+Fig2_PTC
+```{r PTC}
+t<-emmeans(lm(PTC_ave~dm+Sex+Age+Race+Smoking+Asthma+Seasonal_Allergies, data=subset(df, TAS2R38=="AVI/AVI")), pairwise~dm,adjust = "none")
+
+
+F3.1<-ggplot(data.frame(t$emmeans), aes(x=dm, y=emmean)) + 
+    geom_bar(aes(fill = dm),position=position_dodge(), stat="identity",
+             colour="black", # Use black outlines,
+             size=.3, width=.7) + 
+    geom_errorbar(aes(ymin=emmean-0, ymax=emmean+SE, fill = dm),
+                  size=.3,    # Thinner lines
+                  width=.2,
+                  position=position_dodge(.7)) +
+    ylab("Ratings") +xlab("AVI/AVI")+
+    scale_fill_manual(name="",
+                   breaks=c("case", "control"),
+                   values= c("black", "white"),
+                   labels=c("Diabetes", "Controls")) +
+    theme_classic()+theme(axis.text.x = element_blank(), axis.title.y = element_text(face="bold", size=16),axis.title.x = element_text(face="bold",size=12),  axis.text=element_text(face="bold", size=12), legend.position = c(0.4,0.9),  legend.text = element_text(face="bold", size=14))+ ylim(0, 10.1)+theme(plot.margin = margin(2, 0, 2, 0))
+
+##
+t<-emmeans(lm(PTC_ave~dm+Sex+Age+Race+Smoking+Asthma+Seasonal_Allergies, data=subset(df, TAS2R38=="AVI/PAV"|TAS2R38=="PAV/PAV")), pairwise~dm,adjust = "none")
+
+
+F3.2<-ggplot(data.frame(t$emmeans), aes(x=dm, y=emmean)) + 
+    geom_bar(aes(fill = dm),position=position_dodge(), stat="identity",
+             colour="black", # Use black outlines,
+             size=.3, width=.7) + 
+    geom_errorbar(aes(ymin=emmean-0, ymax=emmean+SE, fill = dm),
+                  size=.3,    # Thinner lines
+                  width=.2,
+                  position=position_dodge(.7)) +
+    ylab("Ratings") +xlab("AVI/PAV, PAV/PAV")+
+    scale_fill_manual(name="",
+                   breaks=c("case", "control"),
+                   values= c("black", "white"),
+                   labels=c("Diabetes", "Controls")) +
+    theme_classic()+theme(axis.text.x = element_blank(), axis.title.y = element_text(face="bold", size=16),axis.title.x = element_text(face="bold",size=12),  axis.text=element_text(face="bold", size=12), legend.position = "None",  legend.text = element_text(face="bold", size=14))+ ylim(0, 10.1)+theme(axis.title.y = element_blank(),axis.text.y = element_blank(), axis.line.y=element_blank(), axis.ticks.y=element_blank())+theme(plot.margin = margin(2, 0, 2, 0))+geom_signif(y_position=c(8.8), xmin=c(1), xmax=c(2), annotation=c( "*"), tip_length=0,vjust=0.4, size=1, textsize = 8)
+
+p<-cowplot::plot_grid(F3.1, F3.2, ncol=2, align = "h", rel_widths = c(.96,.6))
+
+postscript(colormodel="cmyk")
+ggsave(filename ='Figure_2_PTC.tif', p,  width = 10, height = 8, units ="cm",dpi = 600, device='tiff', limitsize = TRUE, compression = "lzw")
+dev.off()
+
+```
+
+
+
+
+Fig3 Nasal glucose vs genotype
+```{r}
+x<-df%>%
+   dplyr::select(Age,Sex,Race,Smoking,rs35874116, rs35744813,rs713598, rs1726866,	rs10246939, rs10772420,TAS2R38_Diplotype,Nasal_Glucose,FSG, A1C)
+
+x$rs35744813[x$rs35744813=="X"]<-NA
+x$rs35874116[x$rs35874116=="X"]<-NA
+
+
+x$TAS2R38<-ifelse(x$TAS2R38_Diplotype=="AVI/AVI", "AVI/AVI",ifelse(x$TAS2R38_Diplotype=="AVI/PAV", "AVI/PAV",ifelse(x$TAS2R38_Diplotype=="PAV/PAV", "PAV/PAV","Other")))
+
+x$TAS2R38.1<-ifelse(x$TAS2R38_Diplotype=="AVI/AVI","AVI/AVI","nonAVI/AVI")
+
+
+```
+
+
+```{r}
+####Nasal_Glucose
+summary(aov(glm(Nasal_Glucose ~ rs35874116+Age+Sex+Race+Smoking, data = x))) ##**
+
+summary(aov(glm(Nasal_Glucose ~ rs10772420+Age+Sex+Race+Smoking, data = x)))
+summary(aov(glm(Nasal_Glucose ~ rs713598+Age+Sex+Race+Smoking, data = x)))
+summary(aov(glm(Nasal_Glucose ~ rs1726866+Age+Sex+Race+Smoking, data = x))) ##
+summary(aov(glm(Nasal_Glucose ~ 	rs10246939+Age+Sex+Race+Smoking, data = x)))
+summary(aov(glm(Nasal_Glucose ~ rs35744813+Age+Sex+Race+Smoking, data = x)))
+summary(aov(glm(Nasal_Glucose ~ TAS2R38+Age+Sex+Race+Smoking, data = subset(x,TAS2R38 !="Other"))))##
+
+summary(aov(Nasal_Glucose ~ TAS2R38, data = x))#subset(x,TAS2R38 !="Other")))##not significant
+
+#ONE_WAY anova
+summary(aov(Nasal_Glucose ~ rs35874116, data = x)) ##**
+summary(aov(Nasal_Glucose ~ rs10772420, data = x))
+summary(aov(Nasal_Glucose ~ rs713598, data = x))
+summary(aov(Nasal_Glucose ~ rs1726866, data = x)) ##
+summary(aov(Nasal_Glucose ~ 	rs10246939, data = x))
+summary(aov(Nasal_Glucose ~ rs35744813, data = x))
+summary(aov(Nasal_Glucose ~ TAS2R38, data = subset(x,TAS2R38 !="Other")))##
+
+summary(aov(Nasal_Glucose ~ TAS2R38, data = x))
+
+summary(aov(lm(Nasal_Glucose ~ TAS2R38.1+Age+Sex+Race+Smoking, data = x)))##
+
+summary(aov(lm(Nasal_Glucose ~ rs35874116, data = x)))
+##posthic
+emmeans(lm(Nasal_Glucose ~ rs35874116+Age+Sex+Race+Smoking, data = x), pairwise ~ rs35874116, adjust = "none")##
+emmeans(lm(Nasal_Glucose ~ rs1726866+Age+Sex+Race+Smoking, data = x), pairwise ~ rs1726866, adjust = "tukey")
+
+emmeans(glm(Nasal_Glucose ~ TAS2R38+Age+Sex+Race+Smoking, data = subset(x,TAS2R38 !="Other")), pairwise ~ TAS2R38, adjust = "tukey")
+##
+#
+
+
+##
+t2<-summarySE(subset(x,rs35874116 !="NA"), measurevar="Nasal_Glucose", groupvars=c("rs35874116"), na.rm = T)
+
+p2<-ggplot(t2, aes(x=rs35874116, y=Nasal_Glucose)) + 
+    geom_bar(position=position_dodge(), stat="identity",
+             colour="black", # Use black outlines,
+             fill="black",
+             size=.3, width=.7) + 
+    geom_errorbar(aes(ymin=Nasal_Glucose-0, ymax=Nasal_Glucose+se),
+                  size=.3,    # Thinner lines
+                  width=.2,
+                  position=position_dodge(.7)) +
+    ylab("Nasal glucose, mmol/L")+xlab("rs35874116\nTAS1R2 (Sweet)")+
+    theme_classic()+theme(axis.title = element_text(face="bold", size=16), axis.text=element_text(face="bold", size=12))+ geom_signif(y_position=c(47), xmin=c(1), xmax=c(3), annotation=c("*"), tip_length=0,vjust=0.4, size=1, textsize = 10) + ylim(0, 63)+theme(plot.margin = margin(2, 0, 2, 2))
+
+
+
+Fig_3
+##
+t2p<-summarySE(subset(x,TAS2R38 !="Other"), measurevar="Nasal_Glucose", groupvars=c("TAS2R38"), na.rm = T)
+
+
+p2.2<-ggplot(t2p, aes(x=TAS2R38, y=Nasal_Glucose)) + 
+    geom_bar(position=position_dodge(), stat="identity",
+             colour="black", # Use black outlines,
+             fill="black",
+             size=.3, width=.5) + 
+    geom_errorbar(aes(ymin=Nasal_Glucose-0, ymax=Nasal_Glucose+se),
+                  size=.3,    # Thinner lines
+                  width=.2,
+                  position=position_dodge(.7)) +
+    ylab("Nasal glucose, mmol/L")+xlab("TAS2R38 diplotypes")+
+    theme_classic()+theme(axis.title = element_text(face="bold", size=16), axis.text=element_text(face="bold", size=12))+ ylim(0, 63)+scale_x_discrete(limits=c("AVI/AVI", "AVI/PAV", "PAV/PAV"))+ geom_signif(y_position=c(57), xmin=c(1), xmax=c(3), annotation=c("*"), tip_length=0,vjust=0.4, size=1, textsize = 10) +ylim(0, 63)
+
+postscript(colormodel="cmyk")
+ggsave(filename ='Figure_3.tif', p2.2,  width = 12, height = 8, units ="cm",dpi = 600, device='tiff', limitsize = TRUE, compression = "lzw")
+dev.off()
+
+```
+
+
+
